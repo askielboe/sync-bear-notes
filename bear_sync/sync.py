@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sqlite3
 from collections import defaultdict
@@ -25,8 +26,32 @@ DEFAULT_DB_PATH = (
 )
 
 
-class BearDB:
+def truncate_filename(filename: str, max_length: int = 255) -> str:
+    """
+    Truncate filename to fit macOS filesystem limits (255 bytes).
+    Assumes filename always ends with .md extension.
+    Adds a hash for uniqueness if truncated.
+    """
+    if len(filename.encode("utf-8")) <= max_length:
+        return filename
 
+    hash_length = 8
+    reserved_length = 3 + hash_length + 1  # .md + hash + underscore
+    available_bytes = max_length - reserved_length
+
+    name = filename[:-3]  # remove .md
+    name_hash = hashlib.md5(filename.encode()).hexdigest()[:hash_length]
+
+    # errors='ignore' drops incomplete UTF-8 sequences that may occur when
+    # byte truncation cuts through multi-byte characters (like emojis)
+    truncated_name = name.encode("utf-8")[:available_bytes].decode(
+        "utf-8", errors="ignore"
+    )
+
+    return f"{truncated_name}_{name_hash}.md"
+
+
+class BearDB:
     def __init__(self, db_path: Path):
         self.con = sqlite3.connect(db_path)
         self.cursor = self.con.cursor()
@@ -138,6 +163,7 @@ class BearDB:
                     suffix = f"_{i}"
 
                 file_name = f"{note.title.replace('/', '_')}{suffix}.md"
+                file_name = truncate_filename(file_name)
                 file_path = note_dir / file_name
 
                 if file_path.exists():
